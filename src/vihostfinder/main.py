@@ -2,6 +2,7 @@ import torch
 from tqdm import tqdm
 from data_utils import HostDataset
 from model import MultiLabelFFNN
+from hmnc_f import HMNCF
 from measures import Metrics
 from torch.utils.data import Dataset, DataLoader
 from torchvision.transforms import ToTensor
@@ -13,18 +14,32 @@ import argparse
 class ViralInf:
 
     def __init__(self, lr=0.001, lm="hyenadna", dropout=0.2, prediction="main",
-                        device="cuda", weights=None):
+                        device="cuda", weights=None, model="simpleNN"):
         self.device = device
         if prediction == "main":
             classes = 7
+            class_levels = [7]
         else:
             classes = 15
+            class_levels = [6, 2, 7, 1]
+            hidsize_g = [128, 128, 256, 64]
+            hidsize_l = [64, 64, 128, 32]
+            names_levels = ["superkingdom", "order", "class", "specie"]
         if lm == "hyenadna":
             input_dim = 256
         else:
             input_dim = 256
-        self.model = MultiLabelFFNN(input_dim=input_dim, output_dim=classes,
-                                    dropout_rate=dropout)
+        if model == "simpleNN":
+            self.model = MultiLabelFFNN(input_dim=input_dim, output_dim=classes,
+                                        dropout_rate=dropout)
+            self.model_name = model
+        elif model == "HMCNF":
+            self.model = HMNCF(in_dims=input_dim, hidsize_g=hidsize_g,
+                    hidsize_l=hidsize_l, class_levels=class_levels,
+                    names_levels=names_levels,
+                    dropout=0.2,beta=0.5)
+            self.model_name = model
+            self.sigma = 0.3
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
         self.criterion = nn.BCEWithLogitsLoss()
 
@@ -58,7 +73,12 @@ class ViralInf:
             for inputs, labels in tqdm(val_loader):
                 inputs, labels = inputs.to(self.device), labels.to(self.device).float()
                 outputs = self.model(inputs)
-                loss = self.criterion(outputs, labels)
+                if self.model_name == "simpleNN":
+                    loss = self.criterion(outputs, labels)
+                elif self.model_name == "HMCNF":
+                    loss = self.model.loss_function(vanilla_loss=self.criterion, logits=outputs,
+                                                    labels=labels, hier_restr=False,
+                                                    sigma=self.sigma)
 
                 val_loss += loss.item()
                 out_sig = torch.sigmoid(outputs)
@@ -115,6 +135,7 @@ if __name__ == "__main__":
     parser.add_argument('--lm', help='lm', choices=["hyenadna", "caduceus"])
     parser.add_argument('--labels', help='labels', choices=["main","all"])
     parser.add_argument('--partition', help='labels', choices=["1","2","3","4","5"])
+    parser.add_argument("--model", help="model", choices=["simpleNN", "HMCNF"])
     parser.add_argument("--out")
     parser.add_argument("--epochs")
     args = parser.parse_args()

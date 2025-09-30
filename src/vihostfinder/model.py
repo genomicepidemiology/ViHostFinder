@@ -14,7 +14,7 @@ class MultiLabelFFNN(nn.Module):
         self.fc2 = nn.Linear(hidden_dim, hidden_dim2)
         self.fc3 = nn.Linear(hidden_dim2, output_dim)
 
-    def forward(self, x):
+    def forward(self, x, device):
         x = F.relu(self.fc1(x))
         x = self.dropout(x)
         x = F.relu(self.fc2(x))  # No sigmoid here if using BCEWithLogitsLoss

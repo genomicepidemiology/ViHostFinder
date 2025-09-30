@@ -8,10 +8,14 @@ from torchvision.transforms import ToTensor
 
 
 class HostDataset(Dataset):
-    allhosts = ["Bacteria","Plant","Protist","Fungi","Spiralia","Ecdysozoa",
-                "Fish","Reptile","Amphibia","Bird","Mammal","Cnidaria", "Human", 
-                "Protostomia","Vertebrate"]
-    mainhosts = ["Bacteria","Plant","Protist","Fungi", "Cnidaria", "Protostomia",
+    allhosts = ["Bacteria","Plant", "Animalia", "Protist", "Cnidaria", "Fungi",
+                "Vertebrate","Invertebrate",
+                "Amphibia", "Fish", "Mammal", "Bird", "Reptile", "Ecdysozoa", "Spiralia",
+                "Human"]
+    allhosts_flat = ["Bacteria","Plant", "Protist", "Cnidaria", "Fungi",
+                "Amphibia", "Fish", "Mammal", "Bird", "Reptile", "Ecdysozoa", "Spiralia",
+                "Human"]
+    mainhosts = ["Bacteria","Plant","Protist","Fungi", "Cnidaria", "Invertebrate",
                 "Vertebrate"]
 
     def __init__(self, annotations_file, file_dir, partition=False, transform=False,
@@ -26,6 +30,8 @@ class HostDataset(Dataset):
         self.transform = transform
         if labels == "main":
             self.labels = HostDataset.mainhosts
+        elif labels == "simple_flat":
+            self.labels = HostDataset.allhosts_flat
         else:
             self.labels = HostDataset.allhosts
         self.weights = self.calculate_weights()

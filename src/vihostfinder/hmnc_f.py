@@ -11,7 +11,7 @@ class HMNCF(nn.Module):
 
     def __init__(self, in_dims: int, hidsize_g: list, hidsize_l:list,
                  class_levels, names_levels, 
-                 dropout, beta:float):
+                  dropout, beta:float):
 
         super().__init__()
       
@@ -71,10 +71,11 @@ class HMNCF(nn.Module):
         return dict_data, num_pred
 
 
-    def forward(self, x):
+    def forward(self, x, device):
         out_global = torch.Tensor()
+        out_global = out_global.to(device)
         local_predictions = []
-        for global_layer, local_layer, local_pred in tqdm(zip(self.global_layers, self.local_layers, self.local_preds)):
+        for global_layer, local_layer, local_pred in zip(self.global_layers, self.local_layers, self.local_preds):
             in_global = torch.cat([x,out_global], dim=1)
             out_global = global_layer(in_global)
             out_local = local_layer(out_global)
@@ -89,7 +90,7 @@ class HMNCF(nn.Module):
 
     def loss_function(self, vanilla_loss, logits, labels, hier_restr=False,
                         sigma=0.5):
-        loss_nn = vanilla_loss(labels, logits)
+        loss_nn = vanilla_loss(logits, labels)
         loss_hier = 0
         if hier_restr:
             for pair in hier_restr:

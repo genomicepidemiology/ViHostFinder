@@ -109,7 +109,7 @@ class TreeOutput:
             if output is not None:
                 output_clamped = max(0.0, min(1.0, output))
                 nstyle["size"] = int(5 + 15 * output_clamped)
-                nstyle["bgcolor"] = self.white_to_ylorbr_color(output)
+                #nstyle["bgcolor"] = self.white_to_ylorbr_color(output)
             else:
                 nstyle["size"] = 10
 

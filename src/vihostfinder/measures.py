@@ -1,6 +1,6 @@
 from sklearn.metrics import accuracy_score, classification_report, hamming_loss, f1_score
 from sklearn.metrics import log_loss, multilabel_confusion_matrix, precision_score, recall_score, roc_auc_score
-from sklearn.metrics import coverage_error, average_precision_score, label_ranking_loss
+from sklearn.metrics import coverage_error, average_precision_score, label_ranking_loss, matthews_corrcoef
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
@@ -116,6 +116,10 @@ class Metrics:
         df_long = df.melt(var_name="Category", value_name=ylabel)
         df_long["Epochs"] = df_long.groupby("Category").cumcount()
         sns.lineplot(data=df_long, x="Epochs", y=ylabel, hue="Category")
+        if ylabel == "Loss":
+            plt.ylim(0, 0.4)
+        else:
+            plt.ylim(0,1)
         plt.savefig(outname)
         plt.close()
 
@@ -125,9 +129,6 @@ class Metrics:
 
     @staticmethod
     def tree_plot(npz_file):
-        print(npz_file["labels"].shape)
-        print(npz_file["preds"].shape)
-        print(npz_file["outs"].shape)
         last_out = npz_file["outs"][-1,:,:]
         last_labels = npz_file["labels"][-1,:,:]
         last_preds = npz_file["preds"][-1,:,:]
@@ -166,6 +167,111 @@ class Metrics:
             tree_baseline = TreeOutput()
             tree_baseline.fillpred_tree(output_vector, label_map)
             tree_baseline.save_tree("test/graphs/out{}.png".format(l)) 
+
+class HierMetrics:
+
+    OrigLabels = {"FirstLevel": ["Bacteria", "Plant", "Animalia", "Protist", "Cnidaria", "Fungi"],
+                  "SecondLevel": ["Vertebrate", "Invertebrate"],
+                  "ThirdLevel": ["Amphibia", "Fish", "Mammal", "Bird", "Reptile", "Spiralia", "Ecdysozoa"],
+                  "FourthLevel": ["Human"]}
+    
+    def __init__(self, labels, out_cont, labels_names, threshold=0.5):
+
+        self.labels_df = pd.DataFrame(labels, columns=labels_names)
+        self.outCont_df = pd.DataFrame(out_cont, columns=labels_names)
+        self.predictions_df = (self.outCont_df >= threshold).astype(int)
+        self.labels_names = labels_names
+
+    def acc_per_label(self):
+        prec = []
+        recall = []
+        mcc = []
+        f1 = []
+        for l in self.labels_names:
+            mcc.append(matthews_corrcoef(self.labels_df[l], self.predictions_df[l]))
+            recall.append(recall_score(self.labels_df[l], self.predictions_df[l]))
+            prec.append(precision_score(self.labels_df[l], self.predictions_df[l]))
+            f1.append(f1_score(self.labels_df[l], self.predictions_df[l]))
+        df_results = pd.DataFrame(list(zip(prec, recall, mcc, f1)), columns=["Precision", "Recall", "MCC", "F1"], index=self.labels_names)
+        return df_results
+    
+    def acc_per_level(self):
+        results = {}
+        for k in HierMetrics.OrigLabels.keys():
+            lvl_labels = self.labels_df[HierMetrics.OrigLabels[k]]
+            lvl_preds = self.predictions_df[HierMetrics.OrigLabels[k]]
+            results[k] = {}
+            prec_macro = Metrics.calc_precision(lvl_labels, lvl_preds, mode="macro")
+            prec_weighted = Metrics.calc_precision(lvl_labels, lvl_preds, mode="weighted")
+            recall_macro = Metrics.calc_recall(lvl_labels, lvl_preds, mode="macro")
+            recall_weighted = Metrics.calc_recall(lvl_labels, lvl_preds, mode="weighted")
+            f1_macro = Metrics.calc_f1(lvl_labels, lvl_preds, mode="macro")
+            f1_weighted = Metrics.calc_f1(lvl_labels, lvl_preds, mode="weighted")
+            hamming = Metrics.calc_hammingloss(lvl_labels, lvl_preds)
+            subsetacc = Metrics.calc_subsetaccuracy(lvl_labels, lvl_preds)
+            results[k]["Precision (macro)"] = prec_macro
+            results[k]["Precision (weighted)"] = prec_weighted
+            results[k]["Recall (macro)"] = recall_macro
+            results[k]["Recall (weighted)"] = recall_weighted
+            results[k]["F1 (macro)"] = f1_macro
+            results[k]["F1 (weighted)"] = f1_weighted
+            results[k]["Hamming"] = hamming
+            results[k]["Subset Accuracy"] = subsetacc
+        df_results = pd.DataFrame.from_dict(results, orient='index')
+        return df_results
+
+    @staticmethod
+    def build_ancestor_map(hierarchy, num_labels):
+        ancestor_map = {i: set() for i in range(num_labels)}
+        parent_map = {}
+
+        for relation in hierarchy:
+            leave = relation["Leave"]
+            parent = relation["Parent"]
+            parent_map[leave] = parent
+
+        for i in range(num_labels):
+            current = i
+            while current in parent_map:
+                parent = parent_map[current]
+                ancestor_map[i].add(parent)
+                current = parent
+
+        return ancestor_map
+
+
+    def hierarchical_prec_recall_f1(self, y_true, y_pred, hierarchy, num_labels):
+        ancestor_map = HierMetrics.build_ancestor_map(hierarchy=hierarchy, num_labels=num_labels)
+        def expand_with_ancestors(indices):
+            expanded = set(indices)
+            for idx in indices:
+                expanded.update(ancestor_map.get(idx, set()))
+            return expanded
+
+        total_precision = 0.0
+        total_recall = 0.0
+        total_f1 = 0.0
+        n_samples = len(y_true)
+
+        for true_indices, pred_indices in zip(y_true, y_pred):
+            true_expanded = expand_with_ancestors(true_indices)
+            pred_expanded = expand_with_ancestors(pred_indices)
+
+            intersection = true_expanded & pred_expanded
+            precision = len(intersection) / len(pred_expanded) if pred_expanded else 0.0
+            recall = len(intersection) / len(true_expanded) if true_expanded else 0.0
+            f1 = (2 * precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
+
+            total_precision += precision
+            total_recall += recall
+            total_f1 += f1
+
+        avg_precision = total_precision / n_samples
+        avg_recall = total_recall / n_samples
+        avg_f1 = total_f1 / n_samples
+
+        return avg_precision, avg_recall, avg_f1
+
 
 
         

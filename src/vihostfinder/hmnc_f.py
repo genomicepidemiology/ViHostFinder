@@ -92,7 +92,7 @@ class HMNCF(nn.Module):
                         sigma=0.5):
         loss_nn = vanilla_loss(logits, labels)
         loss_hier = 0
-        if hier_restr:
+        if sigma != 0:
             for pair in hier_restr:
                 loss_pair = logits[:,pair["Leave"]] - logits[:,pair["Parent"]]
                 loss_pair = loss_pair[loss_pair>0]
